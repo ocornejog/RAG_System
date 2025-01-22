@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: chat-service
-        image: chat_service
+        image: chat_service:latest
         imagePullPolicy: Never
         ports:
             - containerPort: 8002

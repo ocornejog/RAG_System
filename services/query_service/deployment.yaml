@@ -1,22 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: encode-service
+  name: query-service
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: encode-service
+      app: query-service
   template:
     metadata:
       labels:
-        app: encode-service
+        app: query-service
     spec:
       containers:
-        - name: encode-service
-          image: encode_service:latest
+        - name: query-service
+          image: query_service:latest
+          imagePullPolicy: Never
           ports:
-            - containerPort: 8000
+            - containerPort: 8001
           resources:
             limits:
               memory: "512Mi"
@@ -28,12 +29,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: encode-service
+  name: query-service
 spec:
   selector:
-    app: encode-service
+    app: query-service
   ports:
     - protocol: TCP
       port: 80
-      targetPort: 8000
-  type: ClusterIP  
+      targetPort: 8001
+  type: ClusterIP

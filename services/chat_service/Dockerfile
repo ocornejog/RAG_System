@@ -11,7 +11,7 @@ COPY chat_service.py chat_service.py
 # Install all the dependencies from the file requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose the port if neccesary (in this caso, only if the service executes an HTTP server)
+# Expose the port if neccesary (in this case, only if the service executes an HTTP server)
 EXPOSE 8002
 
 # Start the application using uvicorn
