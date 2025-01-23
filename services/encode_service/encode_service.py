@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 from dataclasses import dataclass
+import requests
 import logging
 
 # Define the response structure
@@ -16,7 +17,8 @@ class EncodeResponse:
 
 # Class for the encoding service
 class EncodeService:
-    def __init__(self):
+    def __init__(self, base_url: str = "http://127.0.0.1:8000"):
+        self.base_url = base_url
         self._setup_logging()
 
     def _setup_logging(self):
@@ -25,29 +27,35 @@ class EncodeService:
 
     def encode_documents(self, documents: List[str]) -> EncodeResponse:
         try:
-            # Simulates the processing logic
-            if documents:
+            response = requests.post(
+                f"{self.base_url}/encode_documents",
+                json={"documents": documents}
+            )
+            
+            if response.status_code == 200:
                 return EncodeResponse(
                     success=True,
                     message="Documents encoded successfully",
                     timestamp=datetime.now(),
-                    documents_count=len(documents),
+                    documents_count=len(documents)
                 )
             else:
                 return EncodeResponse(
                     success=False,
-                    message="No documents to encode",
+                    message="Failed to encode documents",
                     timestamp=datetime.now(),
-                    documents_count=0,
+                    documents_count=len(documents),
+                    error=response.text
                 )
+                
         except Exception as e:
             self.logger.error(f"Error encoding documents: {str(e)}")
             return EncodeResponse(
                 success=False,
                 message="Error encoding documents",
                 timestamp=datetime.now(),
-                documents_count=0,
-                error=str(e),
+                documents_count=len(documents),
+                error=str(e)
             )
 
 # Initialize the FastAPI application
@@ -62,7 +70,7 @@ class DocumentsInput(BaseModel):
 @app.post("/encode_documents")
 def encode_documents(input_data: DocumentsInput):
     response = service.encode_documents(input_data.documents)
-    return response.__dict__
+    return {"result": response}
 
 # Endpoint to check the service status
 @app.get("/")

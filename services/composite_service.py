@@ -7,14 +7,13 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 import requests
-from .encode_service.encode_service import EncodeService, EncodeResponse
 import psutil
 
 @dataclass
 class DocumentResponse:
     text: str
     processed_time: datetime
-    encode_response: EncodeResponse
+    encode_response: Dict[str, Any]
     filepath: str
 
 @dataclass
@@ -29,11 +28,14 @@ class ChatResponse:
 
 class CompositeService:
     def __init__(self, base_url: str = "http://127.0.0.1:8000"):
+        # Base URLs for Kubernetes services
+        self.encode_service_url = "http://encode-service.default.svc.cluster.local:80"
+        self.query_service_url = "http://query-service.default.svc.cluster.local:8001"
+        self.chat_service_url = "http://chat-service.default.svc.cluster.local:8002"
         self.base_url = base_url
         self.processed_documents: Dict[str, DocumentResponse] = {}
         self.observer = None
         self.handler = None
-        self.encode_service = EncodeService(base_url)
         self._setup_logging()
         self.start_time = datetime.now()
 
@@ -132,11 +134,6 @@ class CompositeService:
     def start_document_monitoring(self, docs_dir: str = "documents"):
         """Start monitoring the documents directory"""
         try:
-            # Check if encoding service is available
-            if not self.encode_service.get_encoding_status():
-                self.logger.error("Encoding service is not available")
-                raise ConnectionError("Cannot connect to encoding service")
-                
             path = Path(docs_dir)
             path.mkdir(exist_ok=True)
             
@@ -154,10 +151,10 @@ class CompositeService:
             raise
 
     def search(self, query: str) -> List[SearchResult]:
-        """Search documents through the API"""
+        """Search documents through the Kubernetes service"""
         try:
             response = requests.post(
-                f"{self.base_url}/search_documents",
+                f"{self.query_service_url}/search_documents",
                 json={"query": query}
             )
             
@@ -188,11 +185,11 @@ class CompositeService:
             return []
 
     def chat(self, message: str) -> ChatResponse:
-        """Handle chat interactions"""
+        """Handle chat interactions through the Kubernetes service"""
         try:
             start_time = time.time()
             response = requests.post(
-                f"{self.base_url}/chat",
+                f"{self.chat_service_url}/chat",
                 json={
                     "messages": [{"role": "user", "content": message}],
                     "temperature": 0.7,
@@ -253,7 +250,10 @@ class CompositeService:
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    encode_response = self.encode_service.encode_documents([content])
+                    encode_response = requests.post(
+                        f"{self.encode_service_url}/encode_documents",
+                        json={"documents": [content]}
+                    ).json()
                     break
                 except Exception as e:
                     if attempt == max_retries - 1:
@@ -268,23 +268,23 @@ class CompositeService:
                 filepath=filepath
             )
             
-            if encode_response.success:
+            if encode_response["success"]:
                 self.logger.info(f"Successfully processed: {filepath}")
             else:
-                self.logger.error(f"Failed to process {filepath}: {encode_response.error}")
+                self.logger.error(f"Failed to process {filepath}: {encode_response['error']}")
                 
-            return encode_response.success
+            return encode_response["success"]
 
         except Exception as e:
             self.logger.error(f"Error processing {filepath}: {str(e)}")
             # Store error response
-            error_response = EncodeResponse(
-                success=False,
-                message="Error processing document",
-                timestamp=datetime.now(),
-                documents_count=1,
-                error=str(e)
-            )
+            error_response = {
+                "success": False,
+                "message": "Error processing document",
+                "timestamp": datetime.now(),
+                "documents_count": 1,
+                "error": str(e)
+            }
             self.processed_documents[filepath] = DocumentResponse(
                 text="",
                 processed_time=datetime.now(),
@@ -319,7 +319,7 @@ class CompositeService:
         """Get statistics about processed documents"""
         total = len(self.processed_documents)
         successful = sum(1 for doc in self.processed_documents.values() 
-                        if doc.encode_response.success)
+                        if doc.encode_response["success"])
         failed = total - successful
         
         return {

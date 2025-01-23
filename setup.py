@@ -26,7 +26,9 @@ def install_requirements():
         "watchdog",  # For file monitoring
         "python-multipart",
         "typing-extensions",
-        "pydantic"
+        "pydantic",
+        "psutil",
+        "torch>=1.6.0"
     ]
     
     console.print("[bold blue]Installing required packages...[/bold blue]")

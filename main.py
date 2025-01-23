@@ -1,8 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 from services.composite_service import CompositeService
-from services.query_service.query_service import QueryService
-from services.chat_service.chat_service import ChatService
 import threading
 
 class SimpleRAGInterface:
