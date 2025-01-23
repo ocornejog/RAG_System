@@ -19,6 +19,9 @@ from pathlib import Path
 # Config. Google GEMINI
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+EMBEDDINGS_FILE = os.getenv("EMBEDDINGS_FILE", "embeddings.json")
+EMBEDDINGS_MODEL = os.getenv("EMBEDDINGS_MODEL", "paraphrase-MiniLM-L6-v2")
+
 genai.configure(api_key=GOOGLE_API_KEY)
 model = GenerativeModel('gemini-pro')
 start_time = datetime.now()
@@ -57,7 +60,7 @@ app.add_middleware(
 )
 
 # Initialize the sentence transformer model
-embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+embedding_model = SentenceTransformer(EMBEDDINGS_MODEL)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -121,8 +124,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     sources: List[Dict[str, Any]]
-
-EMBEDDINGS_FILE = "embeddings.json"
 
 class SearchLog(BaseModel):
     query: str
@@ -362,10 +363,13 @@ async def encode_documents(request: DocumentRequest):
         new_documents_data = []
         for text in request.documents:
             embedding = embedding_model.encode(text)
+            timestamp = datetime.now().isoformat()
             new_documents_data.append({
-                'id': -1,  # Sera remplacé lors de la sauvegarde
+                'id': -1,  # Will be replaced during save
                 'text': text,
-                'embedding': embedding
+                'embedding': embedding,
+                'timestamp': timestamp,
+                'status': 'active'
             })
         
         # Save embeddings to file (merge with existing)

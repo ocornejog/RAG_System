@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 import requests
 import logging
+import numpy as np
 
 @dataclass
 class SearchResult:
@@ -11,20 +12,24 @@ class SearchResult:
     similarity_score: float
 
 class QueryService:
-    def __init__(self, base_url: str = "http://127.0.0.1:8000"):
-        self.base_url = base_url
+    def __init__(self, encode_service_url: str = "http://127.0.0.1:8000"):
+        self.encode_service_url = encode_service_url
         self._setup_logging()
 
     def _setup_logging(self):
         self.logger = logging.getLogger(__name__)
         logging.basicConfig(level=logging.INFO)
 
-    def search(self, query: str) -> List[SearchResult]:
-        """Search documents based on query"""
+    def search(self, query: str, top_k: int = 5) -> List[SearchResult]:
+        """Search documents based on query using embeddings"""
         try:
+            # Send search request to encode_service which handles embeddings
             response = requests.post(
-                f"{self.base_url}/search_documents",
-                json={"query": query}
+                f"{self.encode_service_url}/search_documents",
+                json={
+                    "query": query,
+                    "top_k": top_k
+                }
             )
             
             if response.status_code == 200:
@@ -36,32 +41,31 @@ class QueryService:
                     )
                     for doc in data.get("relevant_documents", [])
                 ]
-            return []
+            else:
+                self.logger.error(f"Search request failed: {response.text}")
+                return []
         
         except Exception as e:
             self.logger.error(f"Error searching documents: {str(e)}")
             return []
-        
-# Initialize the FastAPI application
+
+# Initialize FastAPI app
 app = FastAPI()
 service = QueryService()
 
-# Input model for documents
-class DocumentsInput(BaseModel):
+class SearchRequest(BaseModel):
     query: str
+    top_k: Optional[int] = 5
 
-# Endpoint to encode documents
 @app.post("/search_documents")
-def search_documents(input_data: DocumentsInput):
-    results = service.search(input_data.query)
+def search_documents(request: SearchRequest):
+    results = service.search(request.query, request.top_k)
     return {"results": [result.__dict__ for result in results]}
 
-# Endpoint to check the service status
 @app.get("/")
 def get_status():
     return {"status": "Service is running"}
 
-# Main entry point
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8001)

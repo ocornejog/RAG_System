@@ -1,43 +1,94 @@
-import time
-from pathlib import Path
-from typing import List, Dict, Any
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-import logging
-from dataclasses import dataclass
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 import requests
-from .encode_service.encode_service import EncodeService, EncodeResponse
+import logging
+from pathlib import Path
+import time
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+import os
 import psutil
 
-@dataclass
+# Define response models locally
+class EncodeResponse:
+    def __init__(self, success: bool, message: str, timestamp: datetime, documents_count: int, error: Optional[str] = None):
+        self.success = success
+        self.message = message
+        self.timestamp = timestamp
+        self.documents_count = documents_count
+        self.error = error
+
 class DocumentResponse:
-    text: str
-    processed_time: datetime
-    encode_response: EncodeResponse
-    filepath: str
+    def __init__(self, text: str, processed_time: datetime, encode_response: dict, filepath: str):
+        self.text = text
+        self.processed_time = processed_time
+        self.encode_response = encode_response
+        self.filepath = filepath
 
-@dataclass
 class SearchResult:
-    text: str
-    similarity_score: float
+    def __init__(self, text: str, similarity_score: float):
+        self.text = text
+        self.similarity_score = similarity_score
 
-@dataclass
 class ChatResponse:
-    response: str
-    sources: List[Dict[str, Any]]
+    def __init__(self, message: str, response: str, timestamp: datetime):
+        self.message = message
+        self.response = response
+        self.timestamp = timestamp
+
+class DocumentHandler(FileSystemEventHandler):
+    def __init__(self, service):
+        self.service = service
+        self._setup_logging()
+
+    def _setup_logging(self):
+        self.logger = logging.getLogger(__name__)
+        logging.basicConfig(level=logging.INFO)
+
+    def on_created(self, event):
+        if event.is_directory:
+            return
+        if event.src_path.endswith('.txt'):
+            self.logger.info(f"New document detected: {event.src_path}")
+            self.service.process_document(event.src_path)
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        if event.src_path.endswith('.txt'):
+            self.logger.info(f"Document modified: {event.src_path}")
+            self.service.process_document(event.src_path)
 
 class CompositeService:
-    def __init__(self, base_url: str = "http://127.0.0.1:8000"):
-        self.base_url = base_url
+    def __init__(self, 
+                 encode_service_url: str = "http://encode-service",
+                 query_service_url: str = "http://query-service",
+                 docs_dir: str = "/app/documents"):
+        # Setup logging first
+        self.logger = logging.getLogger(__name__)
+        logging.basicConfig(level=logging.INFO)
+        
+        # Then initialize other attributes
+        self.encode_service_url = encode_service_url
+        self.query_service_url = query_service_url
+        self.docs_dir = docs_dir
         self.processed_documents: Dict[str, DocumentResponse] = {}
         self.observer = None
         self.handler = None
-        self.encode_service = EncodeService(base_url)
-        self._setup_logging()
         self.start_time = datetime.now()
 
-    def get_statistics(self) -> dict:
+    def _setup_logging(self):
+        """Setup additional logging and monitoring"""
+        try:
+            process = psutil.Process()
+            self.logger.info(f"Process ID: {process.pid}")
+            self.logger.info(f"Memory usage: {process.memory_info().rss / 1024 / 1024:.2f} MB")
+        except Exception as e:
+            self.logger.error(f"Error getting statistics: {str(e)}")
+
+    def _setup_logging(self):
         """
         Récupère toutes les statistiques du système via les appels API.
         """
@@ -125,10 +176,6 @@ class CompositeService:
             }
         }
 
-    def _setup_logging(self):
-        self.logger = logging.getLogger(__name__)
-        logging.basicConfig(level=logging.INFO)
-
     def start_document_monitoring(self, docs_dir: str = "documents"):
         """Start monitoring the documents directory"""
         try:
@@ -212,12 +259,14 @@ class CompositeService:
                     "num_sources": len(data["sources"])
                 })
                 return ChatResponse(
+                    message=message,
                     response=data["response"],
-                    sources=data["sources"]
+                    timestamp=datetime.now()
                 )
             return ChatResponse(
+                message=message,
                 response="Error getting response from server",
-                sources=[]
+                timestamp=datetime.now()
             )
         except Exception as e:
             # Log du chat échoué
@@ -228,8 +277,9 @@ class CompositeService:
             })
             self.logger.error(f"Error in chat: {str(e)}")
             return ChatResponse(
+                message=message,
                 response=f"Error: {str(e)}",
-                sources=[]
+                timestamp=datetime.now()
             )
 
     def process_document(self, filepath: str) -> bool:
@@ -329,29 +379,12 @@ class CompositeService:
             "success_rate": (successful/total * 100) if total > 0 else 0
         }
 
-class DocumentHandler(FileSystemEventHandler):
-    def __init__(self, service: CompositeService):
-        self.service = service
-        self._processing_files = set()
+# Initialize FastAPI app
+app = FastAPI()
+service = CompositeService()
 
-    def on_created(self, event):
-        if event.is_directory or not event.src_path.endswith('.txt'):
-            return
-        self._handle_file_event(event.src_path)
+# ... rest of the endpoints remain the same ...
 
-    def on_modified(self, event):
-        if event.is_directory or not event.src_path.endswith('.txt'):
-            return
-        self._handle_file_event(event.src_path)
-
-    def _handle_file_event(self, filepath):
-        """Handle file events with duplicate prevention"""
-        if filepath in self._processing_files:
-            return
-        
-        self._processing_files.add(filepath)
-        try:
-            time.sleep(1)  # Wait for file to be completely written
-            self.service.process_document(filepath)
-        finally:
-            self._processing_files.remove(filepath)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8003)

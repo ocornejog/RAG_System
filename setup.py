@@ -30,14 +30,22 @@ def install_requirements():
     ]
     
     console.print("[bold blue]Installing required packages...[/bold blue]")
-    for package in requirements:
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-            console.print(f"[green]✓[/green] {package} installed successfully")
-        except subprocess.CalledProcessError:
-            console.print(f"[red]✗[/red] Failed to install {package}")
-            return False
-    return True
+    try:
+        # Try installing all packages at once with --user flag
+        subprocess.check_call([
+            sys.executable, 
+            "-m", 
+            "pip", 
+            "install",
+            "--user",  # Install in user space to avoid permission issues
+            *requirements
+        ])
+        console.print("[green]✓[/green] All packages installed successfully")
+        return True
+    except subprocess.CalledProcessError as e:
+        console.print("[bold red]Failed to install packages. Try running this script as administrator.[/bold red]")
+        console.print(f"[red]Error details: {str(e)}[/red]")
+        return False
 
 def create_env_file():
     """Create .env file if it doesn't exist."""

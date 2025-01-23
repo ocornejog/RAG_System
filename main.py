@@ -1,23 +1,20 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext
-from services.composite_service import CompositeService
+from services.composite_service.composite_service import CompositeService
 from services.query_service.query_service import QueryService
 from services.chat_service.chat_service import ChatService
 import threading
+import requests
 
 class SimpleRAGInterface:
     def __init__(self, root):
         self.root = root
         self.root.title("RAG System Interface")
         
-        # Initialize single service
-        self.composite_service = CompositeService()
-        
-        # Start document monitoring in a separate thread
-        threading.Thread(
-            target=self.composite_service.start_document_monitoring,
-            daemon=True
-        ).start()
+        # Service URLs
+        self.encode_service_url = "http://localhost:8000"
+        self.query_service_url = "http://localhost:8001"
+        self.composite_service_url = "http://localhost:8003"
         
         self._create_widgets()
 
@@ -31,16 +28,12 @@ class SimpleRAGInterface:
         notebook.add(search_frame, text="Search")
         self._create_search_tab(search_frame)
         
-        # Chat tab
-        chat_frame = ttk.Frame(notebook)
-        notebook.add(chat_frame, text="Chat")
-        self._create_chat_tab(chat_frame)
-        
         # Documents tab
         docs_frame = ttk.Frame(notebook)
         notebook.add(docs_frame, text="Documents")
         self._create_docs_tab(docs_frame)
 
+        # Statistics tab
         stats_frame = ttk.Frame(notebook)
         notebook.add(stats_frame, text="Statistics")
         self._create_stats_tab(stats_frame)
@@ -201,104 +194,6 @@ class SimpleRAGInterface:
         )
         self.search_results.pack(pady=5, padx=5, expand=True, fill="both")
 
-    def _create_chat_tab(self, parent):
-        # Chat history
-        self.chat_history = scrolledtext.ScrolledText(
-            parent,
-            wrap=tk.WORD,
-            height=15
-        )
-        self.chat_history.pack(pady=5, padx=5, expand=True, fill="both")
-        
-        # Input area
-        input_frame = ttk.Frame(parent)
-        input_frame.pack(pady=5, padx=5, fill="x")
-        
-        self.chat_entry = ttk.Entry(input_frame)
-        self.chat_entry.pack(side="left", expand=True, fill="x", padx=(0, 5))
-        
-        send_btn = ttk.Button(
-            input_frame,
-            text="Send",
-            command=self._handle_chat
-        )
-        send_btn.pack(side="right")
-
-
-
-    def _handle_search(self):
-        query = self.search_entry.get()
-        if not query:
-            return
-            
-        self.search_results.delete(1.0, tk.END)
-        results = self.composite_service.search(query)
-        
-        for i, result in enumerate(results, 1):
-            self.search_results.insert(
-                tk.END,
-                f"\n{i}. Score: {result.similarity_score:.3f}\n"
-                f"{result.text}\n"
-                f"{'-' * 80}\n"
-            )
-
-    def _handle_chat(self):
-        message = self.chat_entry.get()
-        if not message:
-            return
-            
-        # Clear input and chat history
-        self.chat_entry.delete(0, tk.END)
-        self.chat_history.delete(1.0, tk.END)
-        
-        # Add loading message
-        self.chat_history.insert(tk.END, "Processing your request...\n")
-        self.chat_history.update()
-        
-        try:
-            # Get response through composite service
-            response = self.composite_service.chat(message)
-            
-            # Clear loading message and show conversation
-            self.chat_history.delete(1.0, tk.END)
-            
-            # Add user message
-            self.chat_history.insert(tk.END, f"Question:\n{message}\n\n")
-            
-            # Add response
-            self.chat_history.insert(tk.END, f"Réponse:\n{response.response}\n")
-            
-            # Filter and add relevant sources
-            relevant_sources = [
-                source for source in response.sources 
-                if source['similarity'] * 100 > 45  # Filtrage des sources > 45%
-            ]
-            
-            if relevant_sources:
-                self.chat_history.insert(tk.END, "\nSources pertinentes:\n")
-                for i, source in enumerate(relevant_sources, 1):
-                    similarity = source['similarity'] * 100
-                    self.chat_history.insert(
-                        tk.END,
-                        f"\n{i}. ({similarity:.1f}%) {source['text']}\n"
-                        f"{'-' * 40}\n"
-                    )
-            # Optionnel : afficher le nombre de sources filtrées
-            filtered_count = len(response.sources) - len(relevant_sources)
-            if filtered_count > 0:
-                self.chat_history.insert(
-                    tk.END,
-                    f"\n{filtered_count} sources de moindre pertinence ont été masquées.\n"
-                )
-        
-        except Exception as e:
-            self.chat_history.delete(1.0, tk.END)
-            self.chat_history.insert(tk.END, f"Une erreur est survenue : {str(e)}\n")
-        
-        finally:
-            self.chat_history.see(tk.END)
-
-
     def _create_docs_tab(self, parent):
         # Stats frame
         stats_frame = ttk.LabelFrame(parent, text="Processing Statistics")
@@ -332,31 +227,57 @@ class SimpleRAGInterface:
         # Initial refresh
         self._refresh_docs()
 
+    def _handle_search(self):
+        query = self.search_entry.get()
+        if not query:
+            return
+            
+        self.search_results.delete(1.0, tk.END)
+        try:
+            response = requests.post(
+                f"{self.query_service_url}/search_documents",
+                json={"query": query, "top_k": 5}
+            )
+            if response.status_code == 200:
+                results = response.json().get("results", [])
+                for i, result in enumerate(results, 1):
+                    self.search_results.insert(
+                        tk.END,
+                        f"\n{i}. Score: {result['similarity_score']:.3f}\n"
+                        f"{result['text']}\n"
+                        f"{'-' * 80}\n"
+                    )
+            else:
+                self.search_results.insert(tk.END, "Error performing search\n")
+        except Exception as e:
+            self.search_results.insert(tk.END, f"Error: {str(e)}\n")
+
     def _refresh_docs(self):
         self.docs_text.delete(1.0, tk.END)
-        docs = self.composite_service.get_processed_documents()
-        
-        # Update statistics
-        stats = self.composite_service.get_processing_statistics()
-        self.stats_labels["total"].config(text=f"Total: {stats['total_documents']}")
-        self.stats_labels["successful"].config(text=f"Successful: {stats['successful_encodings']}")
-        self.stats_labels["failed"].config(text=f"Failed: {stats['failed_encodings']}")
-        self.stats_labels["rate"].config(text=f"Success Rate: {stats['success_rate']:.1f}%")
-        
-        # Update document list
-        for filepath, doc in docs.items():
-            status = "✓" if doc.encode_response.success else "✗"
-            error_info = f"\nError: {doc.encode_response.error}" if doc.encode_response.error else ""
+        try:
+            response = requests.get(f"{self.composite_service_url}/documents")
+            if response.status_code == 200:
+                docs = response.json().get("documents", [])
+                for doc in docs:
+                    status = "✓" if doc["success"] else "✗"
+                    self.docs_text.insert(
+                        tk.END,
+                        f"\n{status} {doc['filepath']}\n"
+                        f"Processed at: {doc['processed_time']}\n"
+                        f"Status: {doc['message']}\n"
+                        f"{'-' * 80}\n"
+                    )
             
-            self.docs_text.insert(
-                tk.END,
-                f"\n{status} {filepath}\n"
-                f"Processed at: {doc.processed_time}\n"
-                f"Status: {doc.encode_response.message}{error_info}\n"
-                f"{'-' * 80}\n"
-            )
-    
-    
+            # Update statistics
+            stats_response = requests.get(f"{self.composite_service_url}/stats")
+            if stats_response.status_code == 200:
+                stats = stats_response.json()
+                self.stats_labels["total"].config(text=f"Total: {stats['total_documents']}")
+                self.stats_labels["successful"].config(text=f"Successful: {stats['successful_encodings']}")
+                self.stats_labels["failed"].config(text=f"Failed: {stats['failed_encodings']}")
+                self.stats_labels["rate"].config(text=f"Success Rate: {stats['success_rate']:.1f}%")
+        except Exception as e:
+            self.docs_text.insert(tk.END, f"Error refreshing documents: {str(e)}\n")
 
 if __name__ == "__main__":
     root = tk.Tk()

@@ -1,18 +1,23 @@
 # Python official image
-FROM python:3.11.9
+FROM python:3.11.9-slim
 
-# Stablish a folder inside the container
+# Set working directory
 WORKDIR /app
 
-# Copy all the files inside the container
-COPY requirements.txt requirements.txt
-COPY encode_service.py encode_service.py
+# Install system dependencies for sentence-transformers
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install all the dependencies from the file requirements.txt
+# Copy requirements first for better caching
+COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose the port if necessary (in this case, only if the service executes an HTTP server)
+# Copy service files
+COPY encode_service.py encode_service.py
+
+# Expose port
 EXPOSE 8000
 
-# Default command to execute the service
+# Run service
 CMD ["uvicorn", "encode_service:app", "--host", "0.0.0.0", "--port", "8000"]
