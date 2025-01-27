@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Docker Build Commands
+docker_build() {
+    echo "Building Docker images..."
+    
+    docker build -t api-gateway:latest -f api/Dockerfile ./api
+    
+    docker build -t chat-service:latest -f services/chat_service/Dockerfile ./services/chat_service
+    docker build -t encode-service:latest -f services/encode_service/Dockerfile ./services/encode_service
+    docker build -t query-service:latest -f services/query_service/Dockerfile ./services/query_service
+    docker build -t composite-service:latest -f services/composite_service/Dockerfile ./services/composite_service
+}
+
+# Kubernetes Deployment Commands
+k8s_deploy() {
+    echo "Deploying to Kubernetes..."
+    
+    kubectl create namespace rag-system --dry-run=client -o yaml | kubectl apply -f -
+    
+    kubectl apply -f api/kubernetes/
+    kubectl apply -f services/encode_service/kubernetes/
+    kubectl apply -f services/query_service/kubernetes/
+    kubectl apply -f services/chat_service/kubernetes/
+    kubectl apply -f services/composite_service/kubernetes/
+}
+
+setup_minikube() {
+    echo "Setting up Minikube..."
+    
+    minikube status || minikube start
+    
+    minikube addons enable ingress
+    
+    eval $(minikube docker-env)
+}
+
+# Wait for pods to be ready
+wait_for_pods() {
+    echo "Waiting for pods to be ready..."
+    kubectl wait --for=condition=ready pod -l app -n rag-system --timeout=300s
+}
+
+# Get API Gateway URL
+get_api_url() {
+    API_URL=$(minikube service api-gateway -n rag-system --url)
+    echo "API Gateway URL: $API_URL"
+
+    sed -i.bak "s#API_GATEWAY_URL=.*#API_GATEWAY_URL=$API_URL#" .env
+}
+
+# Main execution
+main() {
+    setup_minikube
+    
+    docker_build
+    
+    k8s_deploy
+    
+    wait_for_pods
+    
+    get_api_url
+    
+    echo "Retrieving service URLs..."
+    minikube service list -n rag-system
+}
+
+# Execute main function
+main

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: composite-service
+  namespace: rag-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: composite-service
+  template:
+    metadata:
+      labels:
+        app: composite-service
+    spec:
+      containers:
+      - name: composite-service
+        image: composite-service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8003
+        env:
+        - name: ENCODE_SERVICE_URL
+          value: "http://encode-service.rag-system:8000"
+        - name: QUERY_SERVICE_URL
+          value: "http://query-service.rag-system:8001"
+        - name: CHAT_SERVICE_URL
+          value: "http://chat-service.rag-system:8002"  # Added chat service URL
+        volumeMounts:
+        - name: documents-volume
+          mountPath: /app/documents
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+        readinessProbe:
+          httpGet:
+            path: /health  # Updated health check path
+            port: 8003
+          initialDelaySeconds: 10  # Increased delay for services to start
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health  # Updated health check path
+            port: 8003
+          initialDelaySeconds: 20  # Increased delay for services to start
+          periodSeconds: 20
+          timeoutSeconds: 5
+      volumes:
+      - name: documents-volume
+        persistentVolumeClaim:
+          claimName: rag-pvc
