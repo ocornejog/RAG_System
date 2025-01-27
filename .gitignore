@@ -21,7 +21,6 @@ wheels/
 venv/
 env/
 ENV/
-.env
 .venv
 .python-version
 .idea/
@@ -41,8 +40,6 @@ kubeconfig
 embeddings.json
 /app/data/
 *.log
-.env
-.env.*
 !.env.example
 .DS_Store
 Thumbs.db

@@ -47,6 +47,10 @@ class SimpleRAGInterface:
         # Configure main window
         self.root.geometry("800x600")  # Set default window size
         
+        # Create status bar first
+        self.status_bar = ttk.Label(self.root, text="Connected to API Gateway", relief=tk.SUNKEN)
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        
         # Create notebook for tabs
         notebook = ttk.Notebook(self.root)
         notebook.pack(pady=10, expand=True, fill="both")
@@ -65,10 +69,6 @@ class SimpleRAGInterface:
         stats_frame = ttk.Frame(notebook)
         notebook.add(stats_frame, text="Statistics")
         self._create_stats_tab(stats_frame)
-
-        # Add status bar
-        self.status_bar = ttk.Label(self.root, text="Connected to API Gateway", relief=tk.SUNKEN)
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
     def _create_chat_tab(self, parent):
         # Chat history
